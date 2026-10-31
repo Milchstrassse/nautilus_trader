@@ -633,9 +633,30 @@ pub fn dispatch_ws_message(
             op,
             code,
             msg,
-            data,
+            mut data,
+            client_order_ids,
         } => {
             let ts_init = clock.get_time_ns();
+
+            if code != OKX_SUCCESS_CODE && data.is_empty() {
+                log::warn!(
+                    "Order response error (no data): id={id:?} op={op:?} code={code} msg={msg}"
+                );
+
+                // Aggregate batch codes cannot establish each command's outcome without item details
+                if code != "1" && code != "2" {
+                    data = client_order_ids
+                        .into_iter()
+                        .map(|client_order_id| {
+                            serde_json::json!({
+                                "clOrdId": client_order_id.as_str(),
+                                "sCode": code,
+                                "sMsg": msg,
+                            })
+                        })
+                        .collect();
+                }
+            }
 
             for item in &data {
                 let s_code = item
@@ -762,12 +783,6 @@ pub fn dispatch_ws_message(
                         );
                     }
                 }
-            }
-
-            if code != "0" && data.is_empty() {
-                log::warn!(
-                    "Order response error (no data): id={id:?} op={op:?} code={code} msg={msg}"
-                );
             }
         }
         OKXWsMessage::SendFailed {
@@ -4449,6 +4464,7 @@ mod tests {
                 code,
                 msg,
                 data,
+                client_order_ids: Vec::new(),
             },
             &emitter,
             &state,
